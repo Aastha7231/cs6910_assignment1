@@ -3,10 +3,10 @@ import numpy as np
 import wandb
 import os
 from keras.datasets import fashion_mnist
-os.environ['WAND_NOTEBOOK_NAME']='dlasg1'
+os.environ['WAND_NOTEBOOK_NAME']='train'
 
 # !wandb login d327efaa71cd08cf96d51c7e249ccb5eee77cf57
-wandb.init(project='deeplearning',entity='cs22m005',name='dlasg1')
+wandb.init(project='deeplearning',entity='cs22m005',name='train')
 classes=['T-shirt/top','Trouser','Pullover','Dress','Coat','Sandal','Shirt','Sneaker','Bag','Ankle boot']
 
 def reinit_labels(z):
