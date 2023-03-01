@@ -9,6 +9,49 @@ os.environ['WAND_NOTEBOOK_NAME']='train'
 wandb.init(project='deeplearning',entity='cs22m005',name='train')
 classes=['T-shirt/top','Trouser','Pullover','Dress','Coat','Sandal','Shirt','Sneaker','Bag','Ankle boot']
 
+
+
+import argparse
+parser=argparse.ArgumentParser()
+parser.add_argument("--optimizer",help="loss_function",type=str,choices=["sgd", "momentum", "nag", "rmsprop", "adam", "nadam"])
+parser.add_argument("--lr",help="lr",type=float, choices=[1e-2,1e-3])
+parser.add_argument("--epochs",help="epochs",type=int,choices=[5,10])
+parser.add_argument("--batch_size",help="batch_size",type=int,choices=[1,16,32,64])
+parser.add_argument("--num_layers",help="hidden_layer",type=int,choices=[3,4,5])
+parser.add_argument("--weight_init",help="weight_init",type=str,choices=["random","Xavier"])
+parser.add_argument("--activation",help="activation_function",type=str,choices=["reLU","tanh","sigmoid"])
+parser.add_argument("--hidden_size",help="hidden_layer_size",type=int,choices=[32,64,128])
+parser.add_argument("--loss",help="loss_function",type=str,choices=["mean_squared_error", "cross_entropy"])
+args=parser.parse_args()
+
+optimizer=args.optimizer
+if(args.lr==None):
+  lr=1e-2
+else: lr=(args.lr)
+if(args.epochs==None):
+  epochs=5
+else: epochs=args.epochs
+if (args.batch_size==None):
+  batch_size=32
+else: batch_size=args.batch_size
+if (args.num_layers==None):
+  hidden_layer=3
+else: hidden_layer=args.num_layers
+if (args.weight_init==None):
+  weight_init="random"
+else: weight_init=args.weight_init
+if (args.activation==None):
+  activation_function="tanh"
+else: activation_function=args.activation
+if(args.hidden_size==None):
+  hidden_layer_size=3
+else: hidden_layer_size=int(args.hidden_size)
+if(args.loss==None):
+  loss_function="cross_entropy"
+else: loss_function=args.loss
+output_function="softmax"
+
+
 def reinit_labels(z):
   y=[[0 for i in range(z.max()+1)] for j in range(len(z))]
   for i in range(len(y)):
