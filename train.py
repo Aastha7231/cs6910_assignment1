@@ -251,7 +251,50 @@ def momentum_gd(x_train,y_train,x_test,y_test,batches,hidden_layer=3,hidden_laye
   y_pred=h[-1]
   count=train_accuracy(y_pred,y_test)
   print("test_accuracy :",count/len(y_test))
-  
+ 
+def nesterov_gd(x_train,y_train,x_test,y_test,batches,hidden_layer=3,hidden_layer_size=128,lr=0.1,weight_init="random",epochs=1,activation_function="sigmoid",output_function="softmax"):
+  n_layers=layer_init(dim2,output_size,hidden_layer_size,hidden_layer,activation_function,output_function)
+  # for i in range(len(n_layers)):
+  #   print(n_layers[i])
+  weight,bias=start_weights_and_bias(n_layers)
+  x_batch = np.array(np.array_split(x_train, batches))
+  y_batch = np.array(np.array_split(y_train, batches))
+  history_weight={}
+  history_bias={}
+  beta=0.9
+
+  for i in range(len(n_layers)):
+    history_weight[i+1]=np.zeros(weight[i].shape)
+    history_bias[i+1]=np.zeros(bias[i].shape)
+  count=0
+  for e in range(epochs):
+    loss=0
+    for i in range(len(x_batch)):
+      lookahead_weight=[]
+      lookahead_bias=[]
+      for j in range(len(n_layers)):
+        lookahead_weight.append(weight[j] - beta* history_weight[j+1])
+        lookahead_bias.append(bias[j] - beta* history_bias[j+1])
+      a,h=forward_propogation(x_batch[i],y_train,weight,bias,n_layers,activation_function,output_function)
+      y_pred=h[-1]
+      dw,db=backward_propagation(x_batch[i],y_pred,y_batch[i],weight,bias,a,h,n_layers,activation_function)  
+      for j in range(len(n_layers)):
+        history_weight[j+1]=beta*history_weight[j+1]+lr*dw[j+1]
+        history_bias[j+1]=beta*history_bias[j+1]+lr*db[j+1]
+
+        weight[j]=weight[j]-history_weight[j+1]
+        bias[j]=bias[j]-history_bias[j+1]
+      loss+=train_loss(y_pred,y_batch[i])
+      if(e==epochs-1):
+        count+=train_accuracy(y_pred,y_batch[i])
+    loss=loss/batches
+    print(e,"--> ",loss)
+  print("train_accuracy :",count/len(x_train))
+  a,h=forward_propogation(x_test,y_test,weight,bias,n_layers,activation_function,output_function)
+  y_pred=h[-1]
+  count=train_accuracy(y_pred,y_test)
+  print("test_accuracy:",count/len(y_test))
+
  
 def train(x_train,y_train,x_test,y_test,batch_size=32,hidden_layer=3,hidden_layer_size=128,lr=0.1,weight_init="random",epochs=1,activation_function="sigmoid",output_function="softmax"):
   batches=len(x_train)/batch_size
@@ -260,5 +303,8 @@ def train(x_train,y_train,x_test,y_test,batch_size=32,hidden_layer=3,hidden_laye
   
   print("momentum_gd")
   momentum_gd(x_train,y_train,x_test,y_test,batches,3,128,0.1,"random",10,"sigmoid","softmax")
+  
+  print("nesterov_gd")
+  nesterov_gd(x_train,y_train,x_test,y_test,batches,3,128,0.001,"random",5,"sigmoid","softmax")
 
 train(x_train,y_train,x_test,y_test,32,3,128,0.1,"random",1,"sigmoid","softmax")
