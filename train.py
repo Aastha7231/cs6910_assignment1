@@ -333,6 +333,152 @@ def nesterov_gd(x_train,y_train,x_test,y_test,batches,hidden_layer=3,hidden_laye
   count=train_accuracy(y_pred,y_test)
   print("test_accuracy :",count/len(y_test))
   
+ def adam(x_train,y_train,x_test,y_test,batches,hidden_layer=3,hidden_layer_size=128,lr=0.1,weight_init="random",epochs=1,activation_function="sigmoid",output_function="softmax"):
+  n_layers=layer_init(dim2,output_size,hidden_layer_size,hidden_layer,activation_function,output_function)
+  # for i in range(len(n_layers)):
+  #   print(n_layers[i])
+  weight,bias=start_weights_and_bias(n_layers)
+  x_batch = np.array(np.array_split(x_train, batches))
+  y_batch = np.array(np.array_split(y_train, batches))
+
+  v_weight={}
+  v_bias={}
+  m_weight={}
+  m_bias={}
+
+  v_hatw={}
+  v_hatb={}
+  m_hatw={}
+  m_hatb={}
+
+  beta1=0.9
+  beta2=0.999
+  epsilon=1e-3
+  for i in range(len(n_layers)):
+    v_weight[i+1]=np.zeros(weight[i].shape)
+    v_bias[(i+1)]=np.zeros(bias[i].shape)
+    m_weight[i+1]=np.zeros(weight[i].shape)
+    m_bias[(i+1)]=np.zeros(bias[i].shape)
+
+
+  count,t=0,0
+  for e in range(epochs):
+    loss=0
+    for i in range(len(x_batch)):
+      t+=1
+      a,h=forward_propogation(x_batch[i],y_train,weight,bias,n_layers,activation_function,output_function)
+      y_pred=h[-1]
+      dw,db=backward_propagation(x_batch[i],y_pred,y_batch[i],weight,bias,a,h,n_layers,activation_function)  
+
+      for j in range(len(n_layers)):
+        v_weight[j+1] = beta2 * v_weight[j+1] + (1-beta2) * (dw[j+1])**2
+        v_bias[j+1] = beta2 * v_bias[j+1] + (1-beta2) * (db[j+1])**2
+
+        m_weight[j+1] = beta1 * m_weight[j+1] + (1-beta1) * dw[j+1]
+        m_bias[j+1] = beta1 * m_bias[j+1] + (1-beta1) * db[j+1]
+
+        v_hatw[j+1] = np.divide(v_weight[j+1], (1-beta2**t))
+        v_hatb[j+1] = np.divide(v_bias[j+1], (1-beta2**t))
+
+        m_hatw[j+1] = np.divide(m_weight[j+1], (1-beta1**t))
+        m_hatb[j+1] = np.divide(m_bias[j+1], (1-beta1**t))
+
+        weight[j] -= lr * np.divide(m_hatw[j+1], np.sqrt(v_hatw[j+1] + epsilon))
+        bias[j] -= lr * np.divide(m_hatb[j+1], np.sqrt(v_hatb[j+1] + epsilon))
+
+      loss+=train_loss(y_pred,y_batch[i])
+      if(e==epochs-1):
+        count+=train_accuracy(y_pred,y_batch[i])
+    loss=loss/batches
+    print(e,"--> ",loss)
+  print("train_accuracy :",count/len(x_train))
+  a,h=forward_propogation(x_test,y_test,weight,bias,n_layers,activation_function,output_function)
+  y_pred=h[-1]
+  count=train_accuracy(y_pred,y_test)
+  print("test_accuracy :",count/len(y_test))
+  
+ def nadam(x_train,y_train,x_test,y_test,batches,hidden_layer=3,hidden_layer_size=128,lr=0.1,weight_init="random",epochs=1,activation_function="sigmoid",output_function="softmax"):
+  n_layers=layer_init(dim2,output_size,hidden_layer_size,hidden_layer,activation_function,output_function)
+  # for i in range(len(n_layers)):
+  #   print(n_layers[i])
+  weight,bias=start_weights_and_bias(n_layers)
+  x_batch = np.array(np.array_split(x_train, batches))
+  y_batch = np.array(np.array_split(y_train, batches))
+
+  v_weight={}
+  v_bias={}
+  m_weight={}
+  m_bias={}
+
+  v_hatw={}
+  v_hatb={}
+  m_hatw={}
+  m_hatb={}
+
+  beta1=0.9
+  beta2=0.999
+  epsilon=1e-3
+  for i in range(len(n_layers)):
+    v_weight[i+1]=np.zeros(weight[i].shape)
+    v_bias[(i+1)]=np.zeros(bias[i].shape)
+    m_weight[i+1]=np.zeros(weight[i].shape)
+    m_bias[(i+1)]=np.zeros(bias[i].shape)
+
+
+  count,t=0,0
+  for e in range(epochs):
+    loss=0
+    for i in range(len(x_batch)):
+      lookahead_w=[]
+      lookahead_b=[]
+      lookahead_mhatw=[]
+      lookahead_mhatb=[]
+      lookahead_vhatw=[]
+      lookahead_vhatb=[]
+      t+=1
+      for j in range(len(n_layers)):
+        lookahead_vhatw.append(np.divide(beta2 * v_weight[j+1], (1 - beta2 ** t)))
+        lookahead_vhatb.append(np.divide(beta2 * v_bias[j+1], (1 - beta2 ** t)))
+
+        lookahead_mhatw.append(np.divide(beta1 * m_weight[j+1], (1 - beta1 ** t)))
+        lookahead_mhatb.append(np.divide(beta1 * m_bias[j+1], (1 - beta1 ** t)))
+
+        lookahead_w.append(weight[j] - lr*np.divide(lookahead_mhatw[j], np.sqrt(lookahead_vhatw[j] + epsilon)))
+        lookahead_b.append(bias[j] - lr*np.divide(lookahead_mhatb[j], np.sqrt(lookahead_vhatb[j] + epsilon)))
+      
+      a,h=forward_propogation(x_batch[i],y_train,lookahead_w,lookahead_b,n_layers,activation_function,output_function)
+      y_pred=h[-1]
+      dw,db=backward_propagation(x_batch[i],y_pred,y_batch[i],lookahead_w,lookahead_b,a,h,n_layers,activation_function)  
+
+      for j in range(len(n_layers)):
+        v_weight[j+1] = beta2 * v_weight[j+1] + (1-beta2) * (dw[j+1])**2
+        v_bias[j+1] = beta2 * v_bias[j+1] + (1-beta2) * (db[j+1])**2
+
+        m_weight[j+1] = beta1 * m_weight[j+1] + (1-beta1) * dw[j+1]
+        m_bias[j+1] = beta1 * m_bias[j+1] + (1-beta1) * db[j+1]
+
+        v_hatw[j+1] = np.divide(v_weight[j+1], (1-beta2**t))
+        v_hatb[j+1] = np.divide(v_bias[j+1], (1-beta2**t))
+
+        m_hatw[j+1] = np.divide(m_weight[j+1], (1-beta1**t))
+        m_hatb[j+1] = np.divide(m_bias[j+1], (1-beta1**t))
+
+        weight[j] -= lr * np.divide(m_hatw[j+1], np.sqrt(v_hatw[j+1] + epsilon))
+        bias[j] -= lr * np.divide(m_hatb[j+1], np.sqrt(v_hatb[j+1] + epsilon))
+
+      loss+=train_loss(y_pred,y_batch[i])
+      if(e==epochs-1):
+        count+=train_accuracy(y_pred,y_batch[i])
+    loss=loss/batches
+    print(e,"--> ",loss)
+  print("train_accuracy :",count/len(x_train))
+  a,h=forward_propogation(x_test,y_test,weight,bias,n_layers,activation_function,output_function)
+  y_pred=h[-1]
+  count=train_accuracy(y_pred,y_test)
+  print("test_accuracy :",count/len(y_test))
+  
+  
+  
   
 def train(x_train,y_train,x_test,y_test,batch_size=32,hidden_layer=3,hidden_layer_size=128,lr=0.1,weight_init="random",epochs=1,activation_function="sigmoid",output_function="softmax"):
   batches=len(x_train)/batch_size
@@ -347,5 +493,11 @@ def train(x_train,y_train,x_test,y_test,batch_size=32,hidden_layer=3,hidden_laye
   
   print("rms_prop")
   rms_prop(x_train,y_train,x_test,y_test,batches,3,128,0.001,"random",5,"sigmoid","softmax")
+  
+  print("adam")
+  adam(x_train,y_train,x_test,y_test,batches,3,128,0.01,"random",10,"tanh","softmax")
+  
+  print("nadam")
+  nadam(x_train,y_train,x_test,y_test,batches,3,128,0.01,"random",10,"tanh","softmax")
 
 train(x_train,y_train,x_test,y_test,32,3,128,0.1,"random",1,"sigmoid","softmax")
