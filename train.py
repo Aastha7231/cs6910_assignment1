@@ -651,6 +651,7 @@ def train(x_train,y_train,batch_size,hidden_layer,hidden_layer_size,lr,weight_in
   return weight,bias,train_error,train_accuracy,val_error,val_accuracy
 
 
+
 lr = config.lr
 epochs = config.epochs
 batch_size = config.batch_size
