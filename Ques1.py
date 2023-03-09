@@ -7,7 +7,7 @@ os.environ['WAND_NOTEBOOK_NAME']='ques1'
 
 (X_train,Y_train),(X_test,Y_test)=fashion_mnist.load_data()
 
-wandb.init(project='try1',entity='cs22m005',name='ques1')
+wandb.init(project='dlassignment1',entity='cs22m005',name='ques1')
 classes=['T-shirt/top','Trouser','Pullover','Dress','Coat','Sandal','Shirt','Sneaker','Bag','Ankle boot']
 sample_image=[]
 label=[]
