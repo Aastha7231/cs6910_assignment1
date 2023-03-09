@@ -22,7 +22,7 @@ Loss Function - Cross Entropy
 Best Results -
 
 Validation Accuracy - 0.8822
-Test Accuracy- 0.8687
-Test error- 0.3771
+Test Accuracy - 0.8687
+Test error - 0.3771
 
 Link to wandb report - https://wandb.ai/cs22m005/dlasg1/reports/CS6910-Assignment-1-Report--VmlldzozNzQzMzc4
