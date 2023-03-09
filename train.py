@@ -664,4 +664,22 @@ alpha=config.alpha
 run.name='hl_'+str(hidden_layer)+'_bs_'+str(batch_size)+'_ac_'+activation_function
 
 weight,bias,train_error,train_accuracy,val_error,val_accuracy=train(x_train,y_train,batch_size,hidden_layer,hidden_layer_size,lr,weight_init,epochs,activation_function,output_function,optimizer,loss_function,alpha)
-
+n_layers=layer_init(dim2,output_size,hidden_layer_size,hidden_layer,activation_function,output_function)
+for i in range(len(n_layers)):
+    print(n_layers[i])
+a,h=forward_propogation(x_test,weight,bias,n_layers,activation_function,output_function)
+y_pred=h[-1]
+y=[]
+for i in range(len(y_pred)):
+  y.append(np.argmax(y_pred[i]))
+l_val=loss(y_pred,y_test,loss_function,weight,alpha)
+print("loss",l_val)
+countval=accuracy(y_pred,y_test)
+print("accuracy",(countval/len(y_test)))
+cm=wandb.plot.confusion_matrix(
+  y_true=Y_Test,
+  preds=y,
+  class_names= classes
+)
+print('Test Confusion Matrix\n')
+wandb.log({"conf_mat": cm})
