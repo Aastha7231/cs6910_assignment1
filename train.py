@@ -10,24 +10,24 @@ os.environ['WAND_NOTEBOOK_NAME']='train'
 # argparse is used to get inputs from the user on the command line interface
 import argparse
 parser=argparse.ArgumentParser()
-parser.add_argument("--wandb_project",   help="project_name",       type=str,                                                                  default="dlasg1")
-parser.add_argument("--wandb_entity",    help="entity",             type=str,                                                                  default="cs22m005")
-parser.add_argument("--dataset",         help="dataset_name",       type=str,   choices=["fashion_mnist","mnist"],                             default="fashion_mnist")
-parser.add_argument("--momentum",        help="m",                  type=float, choices=[0.5,0.9],                                             default=0.9)
-parser.add_argument("--beta",            help="beta",               type=float, choices=[0.5,0.9],                                             default=0.9)
-parser.add_argument("--beta1",           help="beta1",              type=float, choices=[0.5,0.9],                                             default=0.9)
-parser.add_argument("--beta2",           help="beta2",              type=float, choices=[0.999,0.5],                                           default=0.999)
-parser.add_argument("--epsilon",         help="epsilon",            type=float, choices=[1e-3,1e-4],                                           default=1e-3)
-parser.add_argument("--weight_decay",    help="alpha",              type=float, choices=[0,0.0005,0.5],                                        default=0)
-parser.add_argument("--optimizer",       help="loss_function",      type=str,   choices=["sgd", "momentum", "nag", "rmsprop", "adam", "nadam"],default="adam")
-parser.add_argument("--lr",              help="lr",                 type=float, choices=[1e-4,1e-3],                                           default=1e-3)
-parser.add_argument("--epochs",          help="epochs",             type=int,   choices=[5,10],                                                default=10)
-parser.add_argument("--batch_size",      help="batch_size",         type=int,   choices=[1,16,32,64],                                          default=32)
-parser.add_argument("--num_layers",      help="hidden_layer",       type=int,   choices=[3,4,5],                                               default=5)
-parser.add_argument("--weight_init",     help="weight_init",        type=str,   choices=["random","Xavier"],                                   default="Xavier")
-parser.add_argument("--activation",      help="activation_function",type=str,   choices=["ReLU","tanh","sigmoid"],                             default="ReLU")
-parser.add_argument("--hidden_size",     help="hidden_layer_size",  type=int,   choices=[32,64,128],                                           default=128)
-parser.add_argument("--loss",            help="loss_function",      type=str,   choices=["mean_squared_error", "cross_entropy"],               default="cross_entropy")
+parser.add_argument("-wp",     "--wandb_project",   help="project_name",       type=str,                                                                  default="dlasg1")
+parser.add_argument("-we",     "--wandb_entity",    help="entity",             type=str,                                                                  default="cs22m005")
+parser.add_argument("-d",      "--dataset",         help="dataset_name",       type=str,   choices=["fashion_mnist","mnist"],                             default="fashion_mnist")
+parser.add_argument("-m",      "--momentum",        help="m",                  type=float, choices=[0.5,0.9],                                             default=0.9)
+parser.add_argument("-beta",   "--beta",            help="beta",               type=float, choices=[0.5,0.9],                                             default=0.9)
+parser.add_argument("-beta1",  "--beta1",           help="beta1",              type=float, choices=[0.5,0.9],                                             default=0.9)
+parser.add_argument("-beta2",  "--beta2",           help="beta2",              type=float, choices=[0.999,0.5],                                           default=0.999)
+parser.add_argument("-eps",    "--epsilon",         help="epsilon",            type=float, choices=[1e-3,1e-4],                                           default=1e-3)
+parser.add_argument("-w_d",    "--weight_decay",    help="alpha",              type=float, choices=[0,0.0005,0.5],                                        default=0)
+parser.add_argument("-o",      "--optimizer",       help="loss_function",      type=str,   choices=["sgd", "momentum", "nag", "rmsprop", "adam", "nadam"],default="adam")
+parser.add_argument("-lr",     "--learning_rate",   help="lr",                 type=float, choices=[1e-4,1e-3],                                           default=1e-3)
+parser.add_argument("-e",      "--epochs",          help="epochs",             type=int,   choices=[5,10],                                                default=10)
+parser.add_argument("-b",      "--batch_size",      help="batch_size",         type=int,   choices=[1,16,32,64],                                          default=32)
+parser.add_argument("-nhl",    "--num_layers",      help="hidden_layer",       type=int,   choices=[3,4,5],                                               default=5)
+parser.add_argument("-w_i",    "--weight_init",     help="weight_init",        type=str,   choices=["random","Xavier"],                                   default="Xavier")
+parser.add_argument("-a",      "--activation",      help="activation_function",type=str,   choices=["ReLU","tanh","sigmoid"],                             default="ReLU")
+parser.add_argument("-sz",     "--hidden_size",     help="hidden_layer_size",  type=int,   choices=[32,64,128],                                           default=128)
+parser.add_argument("-l",      "--loss",            help="loss_function",      type=str,   choices=["mean_squared_error", "cross_entropy"],               default="cross_entropy")
 args=parser.parse_args()
 
 # setting the values of parameters that are taken from argparse to the variable names used in the code
@@ -317,7 +317,7 @@ def stochastic_gradient_descent(x_train,y_train,batches,hidden_layer,hidden_laye
   x_batch = np.array(np.array_split(x_train, batches))
   y_batch = np.array(np.array_split(y_train, batches))
   train_error,train_accuracy,val_error,val_accuracy=[],[],[],[]
-
+  print()
 # traing the model for given number of epochs
   for e in range(epochs):
     l,counttrain=0,0
@@ -374,7 +374,7 @@ def momentum_gd(x_train,y_train,batches,hidden_layer,hidden_layer_size,lr,weight
   # splitting the train data into given number of batches
   x_batch = np.array(np.array_split(x_train, batches))
   y_batch = np.array(np.array_split(y_train, batches))
-
+  print()
   train_error,train_accuracy,val_error,val_accuracy=[],[],[],[]
   history_weight={}
   history_bias={}
@@ -443,7 +443,7 @@ def nesterov_gd(x_train,y_train,batches,hidden_layer,hidden_layer_size,lr,weight
   # splitting the train data into given number of batches
   x_batch = np.array(np.array_split(x_train, batches))
   y_batch = np.array(np.array_split(y_train, batches))
-
+  print()
   train_error,train_accuracy,val_error,val_accuracy=[],[],[],[]
   history_weight={}
   history_bias={}
@@ -520,7 +520,7 @@ def rms_prop(x_train,y_train,batches,hidden_layer,hidden_layer_size,lr,weight_in
   # splitting the train data into given number of batches
   x_batch = np.array(np.array_split(x_train, batches))
   y_batch = np.array(np.array_split(y_train, batches))
-
+  print()
   train_error,train_accuracy,val_error,val_accuracy=[],[],[],[]
   history_weight={}
   history_bias={}
@@ -589,7 +589,7 @@ def adam(x_train,y_train,batches,hidden_layer,hidden_layer_size,lr,weight_init,e
   # splitting the train data into given number of batches
   x_batch = np.array(np.array_split(x_train, batches))
   y_batch = np.array(np.array_split(y_train, batches))
-
+  print()
   train_error,train_accuracy,val_error,val_accuracy=[],[],[],[]
 
   v_weight={}
@@ -680,7 +680,7 @@ def nadam(x_train,y_train,batches,hidden_layer,hidden_layer_size,lr,weight_init,
   # splitting the train data into given number of batches
   x_batch = np.array(np.array_split(x_train, batches))
   y_batch = np.array(np.array_split(y_train, batches))
-
+  print()
   train_error,train_accuracy,val_error,val_accuracy=[],[],[],[]
 
   v_weight={}
