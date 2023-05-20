@@ -1,860 +1,803 @@
-import numpy as np
-import math
-
-# Log in to your W&B account
-import wandb
+import pandas as pd
 import os
-os.environ['WAND_NOTEBOOK_NAME']='train'
-# !wandb login d327efaa71cd08cf96d51c7e249ccb5eee77cf57
-
-# argparse is used to get inputs from the user on the command line interface
+import random
+import wandb
+import torch
+import torch.optim as optim
+import torch.nn as nn
+from torch.autograd import Variable
+import matplotlib.pyplot as plt
+import torch.nn.functional as F
+import numpy as np
 import argparse
+import csv
+
 parser=argparse.ArgumentParser()
-parser.add_argument("-wp",     "--wandb_project",   help="project_name",       type=str,                                                                  default="dlasg1")
-parser.add_argument("-we",     "--wandb_entity",    help="entity",             type=str,                                                                  default="cs22m005")
-parser.add_argument("-d",      "--dataset",         help="dataset_name",       type=str,   choices=["fashion_mnist","mnist"],                             default="fashion_mnist")
-parser.add_argument("-m",      "--momentum",        help="m",                  type=float, choices=[0.5,0.9],                                             default=0.9)
-parser.add_argument("-beta",   "--beta",            help="beta",               type=float, choices=[0.5,0.9],                                             default=0.9)
-parser.add_argument("-beta1",  "--beta1",           help="beta1",              type=float, choices=[0.5,0.9],                                             default=0.9)
-parser.add_argument("-beta2",  "--beta2",           help="beta2",              type=float, choices=[0.999,0.5],                                           default=0.999)
-parser.add_argument("-eps",    "--epsilon",         help="epsilon",            type=float, choices=[1e-3,1e-4],                                           default=1e-3)
-parser.add_argument("-w_d",    "--weight_decay",    help="alpha",              type=float, choices=[0,0.0005,0.5],                                        default=0)
-parser.add_argument("-o",      "--optimizer",       help="loss_function",      type=str,   choices=["sgd", "momentum", "nag", "rmsprop", "adam", "nadam"],default="adam")
-parser.add_argument("-lr",     "--learning_rate",   help="lr",                 type=float, choices=[1e-4,1e-3],                                           default=1e-3)
-parser.add_argument("-e",      "--epochs",          help="epochs",             type=int,   choices=[5,10],                                                default=10)
-parser.add_argument("-b",      "--batch_size",      help="batch_size",         type=int,   choices=[1,16,32,64],                                          default=32)
-parser.add_argument("-nhl",    "--num_layers",      help="hidden_layer",       type=int,   choices=[3,4,5],                                               default=5)
-parser.add_argument("-w_i",    "--weight_init",     help="weight_init",        type=str,   choices=["random","Xavier"],                                   default="Xavier")
-parser.add_argument("-a",      "--activation",      help="activation_function",type=str,   choices=["ReLU","tanh","sigmoid"],                             default="ReLU")
-parser.add_argument("-sz",     "--hidden_size",     help="hidden_layer_size",  type=int,   choices=[32,64,128],                                           default=128)
-parser.add_argument("-l",      "--loss",            help="loss_function",      type=str,   choices=["mean_squared_error", "cross_entropy"],               default="cross_entropy")
+
+parser.add_argument('-wp',      '--wandb_project',      help='project name in wandb',                                                    type=str,       default='dlasg3'    )
+parser.add_argument('-we',      '--wandb_entity',       help='entity name in wandb',                                                     type=str,       default='cs22m005'  )
+parser.add_argument('-bd',      '--bidirectional',      help='bidirectional',                   choices=[True,False],                    type=bool,      default=True        )
+parser.add_argument('-at',      '--attention',          help='attention',                       choices=[True,False],                    type=bool,      default=False       )
+parser.add_argument('-b',       '--batch_size',         help='batch sizes',                     choices=[32,64,128],                     type=int,       default=128         )
+parser.add_argument('-lr',      '--learning_rate',      help='learning rates',                  choices=[1e-2,1e-3],                     type=float,     default=1e-3        )
+parser.add_argument('-sz',      '--hidden_size',        help='hidden layer size',               choices=[128,256,512],                   type=int,       default=512         )
+parser.add_argument('-il',      '--input_lang',         help='input language',                  choices=['eng'],                         type=str,       default='eng'       )
+parser.add_argument('-do',      '--drop_out',           help='drop out',                        choices=[0.0,0.2,0.3],                   type=float,     default=0           )
+parser.add_argument('-nle',     '--num_layers_en',      help='layers in encoder',               choices=[1,2,3],                         type=int,       default=3           )
+parser.add_argument('-nld',     '--num_layers_dec',     help='layers in decoder',               choices=[1,2,3],                         type=int,       default=3           )
+parser.add_argument('-es',      '--embedding_size',     help='embedding size',                  choices=[64,128,256],                    type=int,       default=64          )
+parser.add_argument('-ol',      '--output_lang',        help='output language',                 choices=['hin','tel'],                   type=str,       default='hin'       )
+parser.add_argument('-ct',      '--cell_type',          help='cell type',                       choices=['LSTM','GRU','RNN'],            type=str,       default='LSTM'      )
+
 args=parser.parse_args()
 
-# setting the values of parameters that are taken from argparse to the variable names used in the code
-project_name=args.wandb_project
-entity=args.wandb_entity
-dataset_name=args.dataset
-m=args.momentum
-epsilon=args.epsilon
-alpha=args.weight_decay
-hidden_layer=args.num_layers
-activation_function=args.activation
-hidden_layer_size=args.hidden_size
-loss_function=args.loss
-beta=args.beta
-beta1=args.beta1
-beta2=args.beta2
-lr=args.lr
-epochs=args.epochs
-optimizer=args.optimizer
-weight_init=args.weight_init
-loss_function=args.loss
-batch_size=args.batch_size
-
-# default paramenters used while running a sweep on wandb
-# default_parameters=dict(
-#     optimizer="adam",
-#     lr=1e-3,
-#     epochs=10,
-#     hidden_layer_size=128,
-#     activation_function="ReLU",
-#     weight_init="Xavier",
-#     hidden_layer=5,
-#     batch_size=32,
-#     alpha=0
-# )
-# config=default_parameters
-run=wandb.init(project=project_name,entity=entity,name="train",reinit ='True')
-# config=wandb.config
-
-classes=['T-shirt/top','Trouser','Pullover','Dress','Coat','Sandal','Shirt','Sneaker','Bag','Ankle boot']
-
-# reinit_label function is used to convert the label vector into matrix of one_hot_vector of the labels
-def reinit_labels(z):
-  y=[[0 for i in range(z.max()+1)] for j in range(len(z))]
-  for i in range(len(y)):
-    y[i][z[i]]=1
-  y=np.array(y)
-  return y
-
-# importing the training and test dataset 
-# if dataset is fashion_mnist
-if(dataset_name=="fashion_mnist"):
-    from keras.datasets import fashion_mnist
-    (X_Train,Y_Train),(X_Test,Y_Test)=fashion_mnist.load_data()
-# if dataset is mnist
-elif (dataset_name=="mnist"):
-    from keras.datasets import mnist
-    (X_Train,Y_Train),(X_Test,Y_Test)=mnist.load_data()
-else:
-  print("invalid input")
-  exit()
-
-# reshaing the input data 
-dim1=X_Train.shape[0]
-dim2=X_Train.shape[1]*X_Train.shape[1]
-dim3=X_Test.shape[0]
-x_train=X_Train.reshape(dim1,dim2)/255
-x_test=X_Test.reshape(dim3,dim2)/255
-y_train=reinit_labels(Y_Train)
-y_test=reinit_labels(Y_Test)
-output_size=y_train.shape[1]
-
-# splitting the input data into training and validation data in the ratio 9:1
-val_x = x_train[int(len(x_train)*0.9):,:]
-val_y = y_train[int(len(y_train)*0.9):,:]
-
-x_train = x_train[:int(len(x_train)*0.9),:]
-y_train = y_train[:int(len(y_train)*0.9),:]
-
-# output_function is softmax
-output_function="softmax"
+project_name          = args.wandb_project
+entity_name           = args.wandb_entity
+num_layers_encoder    = args.num_layers_en
+num_layers_decoder    = args.num_layers_dec
+embedding_size        = args.embedding_size
+bidirectional         = args.bidirectional
+batch_size            = args.batch_size
+learning_rate         = args.learning_rate
+hidden_size           = args.hidden_size
+input_lang            = args.input_lang
+output_lang           = args.output_lang
+cell_type             = args.cell_type
+drop_out              = args.drop_out
+attention             = args.attention
 
 
-# layer_init contains the model_parameters that we have used for trainig the network
-def layer_init(input_size,output_size,hidden_layer_size,hidden_layer,activation_function,output_function):
-  n_layers=[]
-  # n_layers contains the input and output dimensions at each layer along with the activation function used
-  n_layers.append([input_size,hidden_layer_size,activation_function])
-  for i in range(hidden_layer-1):
-    n_layers.append([hidden_layer_size,hidden_layer_size,activation_function])
-  n_layers.append([hidden_layer_size,output_size,output_function])
-  return n_layers
+use_cuda = torch.cuda.is_available()
+device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
 
-# start_weight_and _biaf function contains the initial weights and biases of the network
-def start_weights_and_bias(n_layers,weight_init):
-#if weight_init method is random
-  if weight_init=="random":
-    initial_weights=[]
-    initial_bias=[]
+SOS_token = 0
+EOS_token = 1
+lang_1 = 'eng'
+lang_2 = 'hin'
+UNK_token = 3
+PAD_token = 4
 
-    for i in range(len(n_layers)):
-      w=np.random.uniform(-1,1,(n_layers[i][1],n_layers[i][0]))
-      b=np.random.rand(1,n_layers[i][1])
-      initial_weights.append(w)
-      initial_bias.append(b)
+dir = 'aksharantar_sampled'
 
-    return initial_weights,initial_bias
-  
-# if weight_init method is Xavier
-  if weight_init=="Xavier":
-    initial_weights=[]
-    initial_bias=[]
+# sweep configuration used to run sweep
 
-    for i in range(len(n_layers)):
-      num=np.sqrt(6/(n_layers[i][1]+n_layers[i][0]))
-      w=np.random.uniform(-num,num,(n_layers[i][1],n_layers[i][0]))
-      b=np.random.uniform(-num,num,(1,n_layers[i][1]))
-      initial_weights.append(w)
-      initial_bias.append(b)
+# sweep_config ={
+#     'method':'bayes'
+# }
 
-    return initial_weights,initial_bias
+# metric = {
+#     'name' : 'validation_accuracy',
+#     'goal' : 'maximize'
+# }
+# sweep_config['metric'] = metric
 
+# parameters_dict={
+#     'hidden_size':{
+#         'values' : [128,256,512]
+#     },
+#     'learning_rate':{
+#         'values' : [1e-2,1e-3]
+#     },
+#     'cell_type':{
+#         'values' : ['LSTM','RNN','GRU']
+#     },
+#     'num_layers_encoder':{
+#         'values' : [1,2,3]
+#     },
+#     'num_layers_decoder':{
+#         'values' : [1,2,3]
+#     },
+#     'drop_out':{
+#         'values' : [0.0,0.2,0.3]
+#     },
+#     'embedding_size':{
+#         'values' : [64,128,256,512]
+#     },
+#     'batch_size':{
+#         'values' : [32,64,128]
+#     },
+#     'bidirectional':{
+#         'values' : [True,False]
+#     }
+# }
+# sweep_config['parameters'] = parameters_dict
 
-# activation function provides the output w.r.t. the activation_function that is used in the network
-def activation(z,activation_function):
-# if input activation function is sigmoid
-  if activation_function=="sigmoid":
-    return 1.0/(1.0 + np.exp(-z))
+# sweep_id = wandb.sweep(sweep_config, project = 'dlasg3')
 
-# the activation used at output layer is softmax
-  if activation_function=="softmax":
-    k=[]
-    for i in range(z.shape[0]):
-      sum=0
-    #   normalization by substracting the max value
-      idx=np.argmax(z[i])
-      z[i]=z[i]-z[i][idx]
-      for j in range(z.shape[1]):
-          sum+=np.exp(z[i][j])
-      k.append(np.exp(z[i])/sum)
-    k=np.array(k) 
-
-    return k
-  
-# if input activation function is tanh
-  if activation_function=="tanh":
-    return np.tanh(z)
-  
-# if input activation function is ReLU
-  if activation_function=="ReLU":
-    return np.maximum(0,z)
-  
-
-# activation_derivative provides the derivative of the activation_function that is used for given input
-def activation_derivative(z,activation_function):
-# if input activation function is sigmoid its derivative is calculated as below
-  if activation_function=="sigmoid":
-    result=1.0/(1.0+np.exp(-z))
-    return result*(1.0-result)
-  
-# if input activation function is tanh its derivative is calculated as below
-  if activation_function=="tanh":
-    return 1-(np.tanh(z))**2
-  
-# if input activation function is ReLU its derivative is calculated as below
-  if activation_function=="ReLU":
-    relu = np.maximum(0, z)
-    relu[relu > 0] = 1
-    return relu
-
-
-# loss function calculates the loss based on the function used
-def loss(y_pred,y_batch,loss_function,weight,alpha):
-  # epsilon is used to avoid zero inside log
-  epsilon=1e-5
-# if input loss function is cross_entropy then loss is calculated as below
-  if(loss_function=="cross_entropy"):
-    loss = -(np.multiply(y_batch, np.log(y_pred+epsilon))).sum() / len(y_pred)
-    reg=0
-    # calculating the regularization term 
-    for i in range(len(weight)):
-      reg+=np.sum(weight[i]**2)
-    reg=((alpha/2)*reg)/len(y_pred)
-
-    return (loss+reg)
-  
-# # if input loss function is mean_squared_error then loss is calculated as below
-  elif(loss_function=="mean_squared_error"):
-    num=np.sum((y_pred-y_batch)**2)
-    deno=2*len(y_pred)
-    loss=(num/deno)
-
-    return loss
-
-
-# accuracy function is used to find the accuracy in traing the model
-def accuracy(y_pred,y_batch):
-  count=0
-  for i in range(len(y_pred)):
-    id1=np.argmax(y_pred[i])
-    id2=np.argmax(y_batch[i])
-    # if true label is same as predicted label the increase the accuracy count
-    if id1==id2:
-      count+=1
-  return count
-
-
-# forward_propogation is used to get the predicted values of the labesl for a given input and the configuration used
-def forward_propogation(x_batch,weight,bias,n_layers,activation_function,output_function):
-  # a and h are the pre-activation and activation respectively at each layer in the network
-  a,h=[],[]
-  k=1
-#   preactivation a=(W.X)+B
-  a_1=np.matmul(x_batch,weight[0].T)+bias[0]
-  a.append(a_1)
-
-  for i in range(len(a_1)):
-    a_1[i]=a_1[i]/a_1[i][np.argmax(a_1[i])]
-
-# activation h=activation_function(pre-activation)
-  h_1=activation(a_1,activation_function)
-  h.append(h_1)
-
-# calculating a and h for entire neural network
-  for j in range(len(n_layers)-2):
-    k+=1
-    a.append(np.matmul(h[j],weight[j+1].T)+bias[j+1])
-    h.append(activation(a[j+1],activation_function))
-  a.append(np.matmul(h[k-1],weight[k].T)+bias[k])
-  z=activation(a[k],output_function)
-  h.append(z)
-
-  return a,h
-
-
-# backward_propagation function is used to calculate the derivative w.r.t. weights and biases while movinf from output to input in the network
-def backward_propagation(x_batch,y_pred,y_batch,weight,a,h,n_layers,activation_function):
-  # dw and db contains derivative w.r.t. weights and biases respectively at each layer in the network
-  dw,db={},{}
-  m=len(y_batch)
-  da_prev=y_pred-y_batch
-  i=len(n_layers)-1
-  while(i>=1):
-    # calculating derivative w.r.t. weights at each layer using the formula taught in class
-    da=da_prev
-    d=[]
-    z=(np.array(np.matmul(h[i-1].T,da)).T)/m
-    b=len(z)
-    c=len(z[0])
-    dw[i+1]=z.reshape(b,c)
-
-    # calculating derivative w.r.t. weights at each layer using the formula taught in class
-    for k in range(len(da[0])):
-      sum=0;
-      for j in range(len(da)):
-        sum+=da[j][k]
-      d.append(sum/m)
-    db[i+1]=np.array(d)
-    dh_prev=np.matmul(da,weight[i])
-    a_new=(activation_derivative(a[i-1],activation_function))
-    da_prev=np.multiply(dh_prev,a_new)
-    i-=1
-  d=[]
-  z=(np.array(np.matmul(x_batch.T,da_prev)).T)/m
-  b=len(z)
-  c=len(z[0])
-  dw[1]=z.reshape(b,c)
-  for k in range(len(da_prev[0])):
-    sum=0;
-    for j in range(len(da_prev)):
-      sum+=da_prev[j][k]
-    d.append(sum/m)
-  db[1]=np.array(d)
-
-  return dw,db
-
-
-# stochastic_gradient_descent is used to train the model for a batch_size of 1 for a particular network configuration
-def stochastic_gradient_descent(x_train,y_train,batches,hidden_layer,hidden_layer_size,lr,weight_init,epochs,activation_function,output_function,loss_function,alpha):
-  n_layers=layer_init(dim2,output_size,hidden_layer_size,hidden_layer,activation_function,output_function)
-
-# initializing the weights and biases using the weight_init method
-  weight,bias=start_weights_and_bias(n_layers,weight_init)
-
-# splitting the train data into given number of batches
-  x_batch = np.array(np.array_split(x_train, batches))
-  y_batch = np.array(np.array_split(y_train, batches))
-  train_error,train_accuracy,val_error,val_accuracy=[],[],[],[]
-  print()
-# traing the model for given number of epochs
-  for e in range(epochs):
-    l,counttrain=0,0
-
-    # training for each batch
-    for i in range(len(x_batch)):
+# class lang is referred from theblog given in assignment and is used for data preprocessing
+class Lang:
+    def __init__(self, name):
+        self.name = name
+        self.char2index = {}
+        self.char2count = {}
+        self.n_chars = 4
+        self.index2char = {0: '<', 1: '>',2 : '?', 3:'.'}
       
-      # call to forward propagation function to calculate pre-activation and activation at each layer
-      a,h=forward_propogation(x_batch[i],weight,bias,n_layers,activation_function,output_function)
-      y_pred=h[-1]
+    def addWord(self, word):
+        i=0
+        while(i< len(word)):
+            self.addChar(word[i])
+            i+=1
+    # this function stores the count of each character its index number and char corresponding to index number
+    def addChar(self, char):
+        if char in self.char2index:
+            self.char2count[char] += 1
+        else:
+            self.index2char[self.n_chars] = char
+            self.char2count[char] = 1
+            self.char2index[char] = self.n_chars
+            self.n_chars += 1
 
-      # call to backward_propagation function to calculate derivative w.r.t. weights and biases at each layer
-      dw,db=backward_propagation(x_batch[i],y_pred,y_batch[i],weight,a,h,n_layers,activation_function)
+# this functon is used to create pairse of input and output word
+def prepareData(dir, lang_1, lang_2):
 
-      # update rule for stochastic_gradient_descent
-      for j in range(len(weight)):
-        weight[j]=weight[j]-lr*dw[j+1]
-        bias[j]=bias[j]-lr*db[j+1]
+    data = pd.read_csv(dir, sep=",", names=['input', 'output'])
+    # object of input and output class
+    input_lang = Lang(lang_1)
+    output_lang = Lang(lang_2)
+
+    max_input_length = max([len(txt) for txt in data['input'].to_list()])
+
+    output_list = data['output'].to_list()
+    input_list = data['input'].to_list() 
+
+    i=0
+    pairs = []
+    while(i < (len(input_list))):
+        x=[input_list[i],output_list[i]]
+        pairs.append(x)
+        i+=1
+
+    j=0
+    while(j < len(pairs)):
+        input_lang.addWord(pairs[j][0])
+        output_lang.addWord(pairs[j][1])
+        j+=1
     
-    # calculating the regularized loss and accuracy on training set
-    a,h=forward_propogation(x_train,weight,bias,n_layers,activation_function,output_function)
-    y_pred=h[-1]
-    l=loss(y_pred,y_train,loss_function,weight,alpha)
-    counttrain=accuracy(y_pred,y_train)
-    train_error.append(l)
-    train_accuracy.append(counttrain/len(x_train))
-    print("Train_accuracy at epoch :",e," is--", counttrain/len(x_train))
-    print("Train_loss at epoch :",e," is--", l)
-    print()
+    max_output_length = max([len(txt) for txt in data['output'].to_list()])
 
-    # calculating the regularized loss and accuracy on validation set
-    a,h=forward_propogation(val_x,weight,bias,n_layers,activation_function,output_function)
-    y_valpred=h[-1]
-    l_val=loss(y_valpred,val_y,loss_function,weight,alpha)
-    val_error.append(l_val)
-    countval=accuracy(y_valpred,val_y)
-    val_accuracy.append(countval/len(val_y))
-    print("Validation_accuracy at epoch :",e," is--", countval/len(val_y))
-    print("Validation_loss at epoch :",e," is--", l_val)
-    print()
+    print("Counted letters:")
+    print(input_lang.name, max_input_length)
+    print(output_lang.name, max_output_length)
+    return input_lang, output_lang, pairs, max_input_length, max_output_length
 
-    # logging the values obtained in wandb
-    wandb.log({"train_accuracy":(counttrain/len(x_train)),"train_error":l,"val_accuracy": (countval/len(val_y)),"val_error":l_val})
-  return weight,bias,train_error,train_accuracy,val_error,val_accuracy
+# class encoder takes as input the english word converted into a tensor and then embedding is done on the output tensor and then it is  given to
+# hidden layer and the output of the hidden layer is given to next hidden layer 
+class EncoderRNN(nn.Module):
+    def __init__(self, input_size, configuration):
+        super(EncoderRNN, self).__init__()
+        # parameter initializations
+        self.embedding_size = configuration['embedding_size']
+        self.bidirectional = configuration['bi_directional']
+        self.batch_size = configuration['batch_size']
+        self.hidden_size = configuration['hidden_size']
 
+        self.dropout = nn.Dropout(configuration['drop_out'])
+        self.embedding = nn.Embedding(input_size, self.embedding_size)
 
-# momentum_gradient_descent is used to train the model for a batch_size of 1 for a particular network configuration
-def momentum_gd(x_train,y_train,batches,hidden_layer,hidden_layer_size,lr,weight_init,epochs,activation_function,output_function,loss_function,alpha):
-  n_layers=layer_init(dim2,output_size,hidden_layer_size,hidden_layer,activation_function,output_function)
-
-  # initializing the weights and biases using the weight_init method
-  weight,bias=start_weights_and_bias(n_layers,weight_init)
-
-  # splitting the train data into given number of batches
-  x_batch = np.array(np.array_split(x_train, batches))
-  y_batch = np.array(np.array_split(y_train, batches))
-  print()
-  train_error,train_accuracy,val_error,val_accuracy=[],[],[],[]
-  history_weight={}
-  history_bias={}
-
-  # history_weight and history_bias store the history for each round of updates for weights and biases
-  for i in range(len(n_layers)):
-    history_weight[i+1]=np.zeros(weight[i].shape)
-    history_bias[(i+1)]=np.zeros(bias[i].shape)
-
-  # training the model for given number of epochs
-  for e in range(epochs):
-
-    l,counttrain=0,0
-    for i in range(len(x_batch)):
-      
-      # call to forward propagation function to calculate pre-activation and activation at each layer
-      a,h=forward_propogation(x_batch[i],weight,bias,n_layers,activation_function,output_function)
-      y_pred=h[-1]
-
-      # call to backward_propagation function to calculate derivative w.r.t. weights and biases at each layer
-      dw,db=backward_propagation(x_batch[i],y_pred,y_batch[i],weight,a,h,n_layers,activation_function)  
-
-      # update rule for momentum_gd
-      for j in range(len(n_layers)):
-        history_weight[j+1]=m*history_weight[j+1]+lr*dw[j+1]
-        history_bias[j+1]=m*history_bias[j+1]+lr*db[j+1]
-
-        weight[j]=weight[j]-history_weight[j+1]
-        bias[j]=bias[j]-history_bias[j+1]
-
-    # calculating the regularized loss and accuracy on training set
-    a,h=forward_propogation(x_train,weight,bias,n_layers,activation_function,output_function)
-    y_pred=h[-1]
-    l=loss(y_pred,y_train,loss_function,weight,alpha)
-    counttrain=accuracy(y_pred,y_train)
-    train_error.append(l)
-    train_accuracy.append(counttrain/len(x_train))
-    print("Train_accuracy at epoch :",e," is--", counttrain/len(x_train))
-    print("Train_loss at epoch :",e," is--", l)
-    print()
-
-    # calculating the regularized loss and accuracy on validation set
-    a,h=forward_propogation(val_x,weight,bias,n_layers,activation_function,output_function)
-    y_valpred=h[-1]
-    l_val=loss(y_valpred,val_y,loss_function,weight,alpha)
-    val_error.append(l_val)
-    countval=accuracy(y_valpred,val_y)
-    val_accuracy.append(countval/len(val_y))
-    print("Validation_accuracy at epoch :",e," is--", countval/len(val_y))
-    print("Validation_loss at epoch :",e," is--", l_val)
-    print()
-
-    # logging the values in wandb
-    wandb.log({"train_accuracy":(counttrain/len(x_train)),"train_error":l,"val_accuracy": (countval/len(val_y)),"val_error":l_val})
-
-  return weight,bias,train_error,train_accuracy,val_error,val_accuracy
-
-
-# nesterov_gradient_descent is used to train the model for a batch_size of 1 for a particular network configuration
-def nesterov_gd(x_train,y_train,batches,hidden_layer,hidden_layer_size,lr,weight_init,epochs,activation_function,output_function,loss_function,alpha):
-  n_layers=layer_init(dim2,output_size,hidden_layer_size,hidden_layer,activation_function,output_function)
-
-  # initializing the weights and biases using the weight_init method
-  weight,bias=start_weights_and_bias(n_layers,weight_init)
-
-  # splitting the train data into given number of batches
-  x_batch = np.array(np.array_split(x_train, batches))
-  y_batch = np.array(np.array_split(y_train, batches))
-  print()
-  train_error,train_accuracy,val_error,val_accuracy=[],[],[],[]
-  history_weight={}
-  history_bias={}
-
-  # history_weight and history_bias store the history for each round of updates for weights and biases
-  for i in range(len(n_layers)):
-    history_weight[i+1]=np.zeros(weight[i].shape)
-    history_bias[i+1]=np.zeros(bias[i].shape)
-
-
-  # training the model for given number of epochs
-  for e in range(epochs):
-    l,counttrain=0,0
-
-
-    for i in range(len(x_batch)):
-      
-      # lookahead_weights and lookahead_bias contains the weights and biases used in the next round after update
-      lookahead_weight=[]
-      lookahead_bias=[]
-      for j in range(len(n_layers)):
-        lookahead_weight.append(weight[j] - m* history_weight[j+1])
-        lookahead_bias.append(bias[j] - m* history_bias[j+1])
-
-      # call to forward propagation function to calculate pre-activation and activation at each layer
-      a,h=forward_propogation(x_batch[i],lookahead_weight,lookahead_bias,n_layers,activation_function,output_function)
-      y_pred=h[-1]
-
-      # call to backward_propagation function to calculate derivative w.r.t. weights and biases at each layer
-      dw,db=backward_propagation(x_batch[i],y_pred,y_batch[i],lookahead_weight,a,h,n_layers,activation_function) 
-
-      # update rule for nag 
-      for j in range(len(n_layers)):
-        history_weight[j+1]=m*history_weight[j+1]+lr*dw[j+1]
-        history_bias[j+1]=m*history_bias[j+1]+lr*db[j+1]
-
-        weight[j]=weight[j]-history_weight[j+1]
-        bias[j]=bias[j]-history_bias[j+1]
-
-    # calculating the regularized loss and accuracy on training set
-    a,h=forward_propogation(x_train,weight,bias,n_layers,activation_function,output_function)
-    y_pred=h[-1]
-    l=loss(y_pred,y_train,loss_function,weight,alpha)
-    counttrain=accuracy(y_pred,y_train)
-    train_error.append(l)
-    train_accuracy.append(counttrain/len(x_train))
-    print("Train_accuracy at epoch :",e," is--", counttrain/len(x_train))
-    print("Train_loss at epoch :",e," is--", l)
-    print()
-
-    # calculating the regularized loss and accuracy on validation set
-    a,h=forward_propogation(val_x,weight,bias,n_layers,activation_function,output_function)
-    y_valpred=h[-1]
-    l_val=loss(y_valpred,val_y,loss_function,weight,alpha)
-    val_error.append(l_val)
-    countval=accuracy(y_valpred,val_y)
-    val_accuracy.append(countval/len(val_y))
-    print("Validation_accuracy at epoch :",e," is--", countval/len(val_y))
-    print("Validation_loss at epoch :",e," is--", l_val)
-    print()
-    # loggin values into wandb
-    wandb.log({"train_accuracy":(counttrain/len(x_train)),"train_error":l,"val_accuracy": (countval/len(val_y)),"val_error":l_val})
-
-  return weight,bias,train_error,train_accuracy,val_error,val_accuracy
-
-
-# rms_prop_gradient_descent is used to train the model for a batch_size of 1 for a particular network configuration
-def rms_prop(x_train,y_train,batches,hidden_layer,hidden_layer_size,lr,weight_init,epochs,activation_function,output_function,loss_function,alpha):
-  n_layers=layer_init(dim2,output_size,hidden_layer_size,hidden_layer,activation_function,output_function)
-
-  # initializing the weights and biases using the weight_init method
-  weight,bias=start_weights_and_bias(n_layers,weight_init)
-
-  # splitting the train data into given number of batches
-  x_batch = np.array(np.array_split(x_train, batches))
-  y_batch = np.array(np.array_split(y_train, batches))
-  print()
-  train_error,train_accuracy,val_error,val_accuracy=[],[],[],[]
-  history_weight={}
-  history_bias={}
-
-  # history_weight and history_bias store the history for each round of updates for weights and biases
-  for i in range(len(n_layers)):
-    history_weight[i+1]=np.zeros(weight[i].shape)
-    history_bias[(i+1)]=np.zeros(bias[i].shape)
-
-  # training the model for given number of epochs
-  for e in range(epochs):
-    l,counttrain=0,0
-
-    for i in range(len(x_batch)):
-      
-      # call to forward propagation function to calculate pre-activation and activation at each layer
-      a,h=forward_propogation(x_batch[i],weight,bias,n_layers,activation_function,output_function)
-      y_pred=h[-1]
-
-      # call to backward_propagation function to calculate derivative w.r.t. weights and biases at each layer
-      dw,db=backward_propagation(x_batch[i],y_pred,y_batch[i],weight,a,h,n_layers,activation_function) 
-
-      # update rule for rms_prop_gd
-      for j in range(len(n_layers)):
-        history_weight[j+1]=beta*history_weight[j+1]+(1-beta)*(dw[j+1])**2
-        history_bias[j+1]=beta*history_bias[j+1]+(1-beta)*(db[j+1])**2
-
-        weight[j] -= lr* np.divide(dw[j+1],np.sqrt(history_weight[j+1] + epsilon))
-        bias[j] -= lr* np.divide(db[j+1],np.sqrt(history_bias[j+1] + epsilon))
-
-    # calculating the regularized loss and accuracy on training set
-    a,h=forward_propogation(x_train,weight,bias,n_layers,activation_function,output_function)
-    y_pred=h[-1]
-    l=loss(y_pred,y_train,loss_function,weight,alpha)
-    counttrain=accuracy(y_pred,y_train)
-    train_error.append(l)
-    train_accuracy.append(counttrain/len(x_train))
-    print("Train_accuracy at epoch :",e," is--", counttrain/len(x_train))
-    print("Train_loss at epoch :",e," is--", l)
-    print()
-
-    # calculating the regularized loss and accuracy on validation set
-    a,h=forward_propogation(val_x,weight,bias,n_layers,activation_function,output_function)
-    y_valpred=h[-1]
-    l_val=loss(y_valpred,val_y,loss_function,weight,alpha)
-    val_error.append(l_val)
-    countval=accuracy(y_valpred,val_y)
-    val_accuracy.append(countval/len(val_y))
-    print("Validation_accuracy at epoch :",e," is--", countval/len(val_y))
-    print("Validation_loss at epoch :",e," is--", l_val)
-    print()
-
-    # logging values into wandb
-    wandb.log({"train_accuracy":(counttrain/len(x_train)),"train_error":l,"val_accuracy": (countval/len(val_y)),"val_error":l_val})
-
-  return weight,bias,train_error,train_accuracy,val_error,val_accuracy
-
-
-# adam_gradient_descent is used to train the model for a batch_size of 1 for a particular network configuration
-def adam(x_train,y_train,batches,hidden_layer,hidden_layer_size,lr,weight_init,epochs,activation_function,output_function,loss_function,alpha):
-  n_layers=layer_init(dim2,output_size,hidden_layer_size,hidden_layer,activation_function,output_function)
-  
-  # initializing the weights and biases using the weight_init method
-  weight,bias=start_weights_and_bias(n_layers,weight_init)
-
-  # splitting the train data into given number of batches
-  x_batch = np.array(np.array_split(x_train, batches))
-  y_batch = np.array(np.array_split(y_train, batches))
-  print()
-  train_error,train_accuracy,val_error,val_accuracy=[],[],[],[]
-
-  v_weight={}
-  v_bias={}
-  m_weight={}
-  m_bias={}
-
-  v_hatw={}
-  v_hatb={}
-  m_hatw={}
-  m_hatb={}
-
-  # m_weight and m_bias are the momentume terms and v_weight and v_bias are the history terms
-  for i in range(len(n_layers)):
-    v_weight[i+1]=np.zeros(weight[i].shape)
-    v_bias[(i+1)]=np.zeros(bias[i].shape)
-    m_weight[i+1]=np.zeros(weight[i].shape)
-    m_bias[(i+1)]=np.zeros(bias[i].shape)
-
-  t=0
-
-  # training the model for given number of epochs
-  for e in range(epochs):
-    l,counttrain=0,0
-
-    for i in range(len(x_batch)):
-      t+=1
-
-      # call to forward propagation function to calculate pre-activation and activation at each layer
-      a,h=forward_propogation(x_batch[i],weight,bias,n_layers,activation_function,output_function)
-      y_pred=h[-1]
-
-      # call to backward_propagation function to calculate derivative w.r.t. weights and biases at each layer
-      dw,db=backward_propagation(x_batch[i],y_pred,y_batch[i],weight,a,h,n_layers,activation_function)
-
-      # update rule for adam gd
-      for j in range(len(n_layers)):
-        v_weight[j+1] = beta2 * v_weight[j+1] + (1-beta2) * (dw[j+1])**2
-        v_bias[j+1] = beta2 * v_bias[j+1] + (1-beta2) * (db[j+1])**2
-
-        m_weight[j+1] = beta1 * m_weight[j+1] + (1-beta1) * dw[j+1]
-        m_bias[j+1] = beta1 * m_bias[j+1] + (1-beta1) * db[j+1]
-
-        v_hatw[j+1] = np.divide(v_weight[j+1], (1-beta2**t))
-        v_hatb[j+1] = np.divide(v_bias[j+1], (1-beta2**t))
-
-        m_hatw[j+1] = np.divide(m_weight[j+1], (1-beta1**t))
-        m_hatb[j+1] = np.divide(m_bias[j+1], (1-beta1**t))
-
-        weight[j] -= lr * np.divide(m_hatw[j+1], np.sqrt(v_hatw[j+1] + epsilon))
-        bias[j] -= lr * np.divide(m_hatb[j+1], np.sqrt(v_hatb[j+1] + epsilon))
+        self.cell_layer = None
+        self.cell_type = configuration["cell_type"]
+        if self.cell_type == 'RNN':
+            self.cell_layer = nn.RNN(configuration['embedding_size'], configuration['hidden_size'], num_layers = configuration["num_layers_encoder"], dropout = configuration['drop_out'], bidirectional = configuration['bi_directional'])
+        if self.cell_type == 'GRU':
+            self.cell_layer = nn.GRU(configuration['embedding_size'], configuration['hidden_size'], num_layers = configuration["num_layers_encoder"], dropout = configuration['drop_out'], bidirectional = configuration['bi_directional'])
+        if self.cell_type == 'LSTM':
+            self.cell_layer = nn.LSTM(configuration['embedding_size'], configuration['hidden_size'], num_layers = configuration["num_layers_encoder"], dropout = configuration['drop_out'], bidirectional = configuration['bi_directional'])
+    #the input tensor is converted to embedding size by passing it to encoding
+    #then drop out is applied to the tensor produced
+    def forward(self, input, hidden):
+        embedded = self.dropout(self.embedding(input).view(1,self.batch_size, -1))
+        output = embedded
+        # the result is passed to the respective cell layer
+        output, hidden = self.cell_layer(output, hidden)
+        return output, hidden
     
-    # calculating the regularized loss and accuracy on training set
-    a,h=forward_propogation(x_train,weight,bias,n_layers,activation_function,output_function)
-    y_pred=h[-1]
-    l=loss(y_pred,y_train,loss_function,weight,alpha)
-    counttrain=accuracy(y_pred,y_train)
-    train_error.append(l)
-    train_accuracy.append(counttrain/len(x_train))
-    print("Train_accuracy at epoch :",e," is--", counttrain/len(x_train))
-    print("Train_loss at epoch :",e," is--", l)
-    print()
+    # if bidirection is applied then changing the dimension taking the average and passing that as output
+    def initHidden(self , num_layers):
+        if (self.bidirectional==False):
+            res = torch.zeros(num_layers, self.batch_size, self.hidden_size)
+        else:
+            res = torch.zeros(num_layers*2, self.batch_size, self.hidden_size)
+        if use_cuda : 
+            return res.cuda()
+        else :
+            return res
 
-    # calculating the regularized loss and accuracy on validation set
-    a,h=forward_propogation(val_x,weight,bias,n_layers,activation_function,output_function)
-    y_valpred=h[-1]
-    l_val=loss(y_valpred,val_y,loss_function,weight,alpha)
-    val_error.append(l_val)
-    countval=accuracy(y_valpred,val_y)
-    val_accuracy.append(countval/len(val_y))
-    print("Validation_accuracy at epoch :",e," is--", countval/len(val_y))
-    print("Validation_loss at epoch :",e," is--", l_val)
-    print()
+# decoder class to take input as the output of the encoder and the produce one character at a time as output
+class DecoderRNN(nn.Module):
+    def __init__(self, configuration,  output_size):
+        super(DecoderRNN, self).__init__()
 
-    # logging values into wandb
-    wandb.log({"train_accuracy":(counttrain/len(x_train)),"train_error":l,"val_accuracy": (countval/len(val_y)),"val_error":l_val})
+        self.embedding_size = configuration['embedding_size']
+        self.bidirectional = configuration['bi_directional']
+        self.hidden_size = configuration['hidden_size']
+        self.batch_size = configuration['batch_size']
 
-  return weight,bias,train_error,train_accuracy,val_error,val_accuracy
+        self.embedding = nn.Embedding(output_size, self.embedding_size)
+        self.dropout = nn.Dropout(configuration['drop_out'])
+
+        self.cell_layer = None
+        self.cell_type = configuration["cell_type"]
+        if self.cell_type == 'RNN':
+            self.cell_layer = nn.RNN(configuration['embedding_size'], configuration['hidden_size'], num_layers = configuration["num_layers_decoder"], dropout = configuration["drop_out"], bidirectional = configuration["bi_directional"])
+        if self.cell_type == 'GRU':
+            self.cell_layer =   nn.GRU(configuration['embedding_size'], configuration['hidden_size'], num_layers = configuration["num_layers_decoder"], dropout = configuration["drop_out"], bidirectional = configuration["bi_directional"])
+        if self.cell_type == 'LSTM':
+            self.cell_layer = nn.LSTM(configuration['embedding_size'], configuration['hidden_size'], num_layers = configuration["num_layers_decoder"], dropout = configuration["drop_out"], bidirectional = configuration["bi_directional"])
+        
+        if (self.bidirectional==False):
+            self.out = nn.Linear(configuration['hidden_size'] , output_size)
+        else:
+            self.out = nn.Linear(configuration['hidden_size']*2 , output_size)
+        self.softmax = nn.LogSoftmax(dim=1)
+    #the input given to hidden layer is first embedded then dropout is performed and then passed though the relu activation layer
+    def forward(self, input, hidden):
+        
+        output = self.dropout(self.embedding(input).view(1,self.batch_size, -1))
+        output = F.relu(output)
+        #softmax is done on the output layer to get probability distribution between 0 to 1 based on cell type we return output,hidden 
+        output, hidden = self.cell_layer(output, hidden)
+        
+        output = self.softmax(self.out(output[0]))
+        return output, hidden
+
+    # if bidirection is applied then changing the dimension taking the average and passing that as output
+    def initHidden(self):
+        if (self.bidirectional==False):
+            res = torch.zeros(self.num_layers_decoder , self.batch_size, self.hidden_size)
+        else:
+            res = torch.zeros(self.num_layers_decoder*2 , self.batch_size, self.hidden_size)
+        if use_cuda : 
+            return res.cuda()
+        else :
+            return res
+
+# attndecoder class to take input as the output of the encoder and the produce one character at a time as output by giving weights to the output of the encoder class
+class AttnDecoder(nn.Module):
+    def __init__(self, configuration, output_size, max_lengthWord):
+        super(AttnDecoder, self).__init__()
+        # parameter initilization
+        self.hidden_size = configuration["hidden_size"]
+        self.output_size = output_size
+        self.embedding_size = configuration["embedding_size"]
+        self.batch_size = configuration["batch_size"]
+        self.max_lengthWord =max_lengthWord
+        self.max_lengthTensor = self.max_lengthWord
 
 
-# nadam_gradient_descent is used to train the model for a batch_size of 1 for a particular network configuration
-def nadam(x_train,y_train,batches,hidden_layer,hidden_layer_size,lr,weight_init,epochs,activation_function,output_function,loss_function,alpha):
-  n_layers=layer_init(dim2,output_size,hidden_layer_size,hidden_layer,activation_function,output_function)
+        self.embedding = nn.Embedding(self.output_size , configuration["embedding_size"])
+        self.attn = nn.Linear(configuration["embedding_size"] + configuration['hidden_size'], self.max_lengthWord+1)
+        self.attn_combine = nn.Linear(configuration["embedding_size"] + configuration['hidden_size'], configuration["embedding_size"])
+        self.dropout = nn.Dropout(configuration["drop_out"])
+        
+        
+        self.cell_layer = None
+        self.cell_type = configuration["cell_type"]
 
-  # initializing the weights and biases using the weight_init method
-  weight,bias=start_weights_and_bias(n_layers,weight_init)
+        if self.cell_type == 'RNN':
+            self.cell_layer = nn.RNN(configuration["embedding_size"] , configuration['hidden_size'], num_layers = configuration["num_layers_decoder"], dropout = configuration["drop_out"])
+        if self.cell_type == 'GRU':
+            self.cell_layer =   nn.GRU(configuration["embedding_size"], configuration['hidden_size'], num_layers = configuration["num_layers_decoder"], dropout = configuration["drop_out"])
+        if self.cell_type == 'LSTM':
+            self.cell_layer = nn.LSTM(configuration["embedding_size"] , configuration['hidden_size'], num_layers = configuration["num_layers_decoder"], dropout = configuration["drop_out"])
+        
 
-  # splitting the train data into given number of batches
-  x_batch = np.array(np.array_split(x_train, batches))
-  y_batch = np.array(np.array_split(y_train, batches))
-  print()
-  train_error,train_accuracy,val_error,val_accuracy=[],[],[],[]
+        if configuration["bi_directional"] != True:
+            self.out = nn.Linear(configuration['hidden_size'] , self.output_size)
+        else:
+            self.out = nn.Linear(configuration['hidden_size']*2 , self.output_size)
+       
 
-  v_weight={}
-  v_bias={}
-  m_weight={}
-  m_bias={}
-
-  v_hatw={}
-  v_hatb={}
-  m_hatw={}
-  m_hatb={}
-
-  # m_weight and m_bias are the momentume terms and v_weight and v_bias are the history terms
-  for i in range(len(n_layers)):
-    v_weight[i+1]=np.zeros(weight[i].shape)
-    v_bias[(i+1)]=np.zeros(bias[i].shape)
-    m_weight[i+1]=np.zeros(weight[i].shape)
-    m_bias[(i+1)]=np.zeros(bias[i].shape)
-
-  t=0
-
-  # training the model for given number of epochs
-  for e in range(epochs):
-    l,counttrain=0,0
-
-    # lookahead terms contains the weights and biases and momentum and history used in the next round after update
-    for i in range(len(x_batch)):
+    def forward(self, input, hidden, encoder_outputs):
+        embedded = self.embedding(input).view(1, self.batch_size, -1)
       
-      lookahead_w=[]
-      lookahead_b=[]
-      lookahead_mhatw=[]
-      lookahead_mhatb=[]
-      lookahead_vhatw=[]
-      lookahead_vhatb=[]
-      t+=1
-
-      for j in range(len(n_layers)):
-        lookahead_vhatw.append(np.divide(beta2 * v_weight[j+1], (1 - beta2 ** t)))
-        lookahead_vhatb.append(np.divide(beta2 * v_bias[j+1], (1 - beta2 ** t)))
-
-        lookahead_mhatw.append(np.divide(beta1 * m_weight[j+1], (1 - beta1 ** t)))
-        lookahead_mhatb.append(np.divide(beta1 * m_bias[j+1], (1 - beta1 ** t)))
-
-        lookahead_w.append(weight[j] - lr*np.divide(lookahead_mhatw[j], np.sqrt(lookahead_vhatw[j] + epsilon)))
-        lookahead_b.append(bias[j] - lr*np.divide(lookahead_mhatb[j], np.sqrt(lookahead_vhatb[j] + epsilon)))
-      
-      # call to forward propagation function to calculate pre-activation and activation at each layer
-      a,h=forward_propogation(x_batch[i],lookahead_w,lookahead_b,n_layers,activation_function,output_function)
-      y_pred=h[-1]
-
-      # call to backward_propagation function to calculate derivative w.r.t. weights and biases at each layer
-      dw,db=backward_propagation(x_batch[i],y_pred,y_batch[i],lookahead_w,a,h,n_layers,activation_function)  
-      
-      # update rule for nadam gd
-      for j in range(len(n_layers)):
-        v_weight[j+1] = beta2 * v_weight[j+1] + (1-beta2) * (dw[j+1])**2
-        v_bias[j+1] = beta2 * v_bias[j+1] + (1-beta2) * (db[j+1])**2
-
-        m_weight[j+1] = beta1 * m_weight[j+1] + (1-beta1) * dw[j+1]
-        m_bias[j+1] = beta1 * m_bias[j+1] + (1-beta1) * db[j+1]
-
-        v_hatw[j+1] = np.divide(v_weight[j+1], (1-beta2**t))
-        v_hatb[j+1] = np.divide(v_bias[j+1], (1-beta2**t))
-
-        m_hatw[j+1] = np.divide(m_weight[j+1], (1-beta1**t))
-        m_hatb[j+1] = np.divide(m_bias[j+1], (1-beta1**t))
-
-        weight[j] -= lr * np.divide(m_hatw[j+1], np.sqrt(v_hatw[j+1] + epsilon))
-        bias[j] -= lr * np.divide(m_hatb[j+1], np.sqrt(v_hatb[j+1] + epsilon))
-
-    # calculating the regularized loss and accuracy on training set
-    a,h=forward_propogation(x_train,weight,bias,n_layers,activation_function,output_function)
-    y_pred=h[-1]
-    l=loss(y_pred,y_train,loss_function,weight,alpha)
-    counttrain=accuracy(y_pred,y_train)
-    train_error.append(l)
-    train_accuracy.append(counttrain/len(x_train))
-    print("Train_accuracy at epoch :",e," is--", counttrain/len(x_train))
-    print("Train_loss at epoch :",e," is--", l)
-    print()
-
-    # calculating the regularized loss and accuracy on validation set
-    a,h=forward_propogation(val_x,weight,bias,n_layers,activation_function,output_function)
-    y_valpred=h[-1]
-    l_val=loss(y_valpred,val_y,loss_function,weight,alpha)
-    val_error.append(l_val)
-    countval=accuracy(y_valpred,val_y)
-    val_accuracy.append(countval/len(val_y))
-    print("Validation_accuracy at epoch :",e," is--", countval/len(val_y))
-    print("Validation_loss at epoch :",e," is--", l_val)
-    print()
-
-    # logging values into wandb
-    wandb.log({"train_accuracy":(counttrain/len(x_train)),"train_error":l,"val_accuracy": (countval/len(val_y)),"val_error":l_val})
-
-  return weight,bias,train_error,train_accuracy,val_error,val_accuracy
-
-
-# the train function contains calls to various optimization function based on the input given
-def train(x_train,y_train,batch_size,hidden_layer,hidden_layer_size,lr,weight_init,epochs,activation_function,output_function,optimizer,loss_function,alpha):
-  
-  batches=math.ceil(len(x_train)/batch_size)
-#   print("batch_size :",batch_size)
-
-  # if optimizer=sgd then stochastic gradient descent will be executed
-  if optimizer=="sgd":
-    # print("stochastic_gd")
-    weight,bias,train_error,train_accuracy,val_error,val_accuracy=stochastic_gradient_descent(x_train,y_train,batches,hidden_layer,hidden_layer_size,lr,weight_init,epochs,activation_function,output_function,loss_function,alpha)
-  
-  # if optimizer=momentum then momentum gradient descent will be executed
-  elif optimizer=="momentum":
-    # print("momentum_gd")
-    weight,bias,train_error,train_accuracy,val_error,val_accuracy=momentum_gd(x_train,y_train,batches,hidden_layer,hidden_layer_size,lr,weight_init,epochs,activation_function,output_function,loss_function,alpha)
-  
-  # if optimizer=nesterov then nesterov gradient descent will be executed
-  elif optimizer=="nag":
-    # print("nesterov_gd")
-    weight,bias,train_error,train_accuracy,val_error,val_accuracy=nesterov_gd(x_train,y_train,batches,hidden_layer,hidden_layer_size,lr,weight_init,epochs,activation_function,output_function,loss_function,alpha)
-  
-  # if optimizer=rmsprop then rms_prop gradient descent will be executed
-  elif optimizer=="rmsprop":
-    # print("rms_prop")
-    weight,bias,train_error,train_accuracy,val_error,val_accuracy=rms_prop(x_train,y_train,batches,hidden_layer,hidden_layer_size,lr,weight_init,epochs,activation_function,output_function,loss_function,alpha)
-  
-  # if optimizer=adam then adam gradient descent will be executed
-  elif optimizer=="adam":
-    # print("adam")
-    weight,bias,train_error,train_accuracy,val_error,val_accuracy=adam(x_train,y_train,batches,hidden_layer,hidden_layer_size,lr,weight_init,epochs,activation_function,output_function,loss_function,alpha)
-  
-  # if optimizer=nadam then nadam gradient descent will be executed
-  elif optimizer=="nadam":
-    # print("nadam")
-    weight,bias,train_error,train_accuracy,val_error,val_accuracy=nadam(x_train,y_train,batches,hidden_layer,hidden_layer_size,lr,weight_init,epochs,activation_function,output_function,loss_function,alpha)
+        if self.cell_type == "LSTM":
+          
+            attn_weights = F.softmax(self.attn(torch.cat((embedded[0], hidden[0][0]), 1)), dim=1)
+        else:
+          
+            attn_weights = F.softmax(self.attn(torch.cat((embedded[0], hidden[0]), 1)), dim=1)
+        
+        
+        attn_applied = torch.bmm(attn_weights.view(self.batch_size, 1, self.max_lengthWord+1),encoder_outputs).view(1, self.batch_size, -1)
+       
+        output = torch.cat((embedded[0], attn_applied[0]), 1)
+        output = self.attn_combine(output).unsqueeze(0)
+   
+        output = F.relu(output)
+        output, hidden = self.cell_layer(output, hidden)
     
-    return weight,bias,train_error,train_accuracy,val_error,val_accuracy
+        output = F.log_softmax(self.out(output[0]), dim=1)
+        return output, hidden, attn_weights
+        
+# function creates and returns a list of indexes of each character of given word
+def indexesFromWord(lang, word):
+    index_list = []
+    i=0
+    while(i < len(word)):
+        if word[i] in lang.char2index.keys():
+            index_list.append(lang.char2index[word[i]])
+        else:
+            index_list.append(UNK_token)
+        i += 1
+    return index_list
 
-# wandb config used to execute a sweep in wandb
-# lr = config.lr
-# epochs = config.epochs
-# batch_size = config.batch_size
-# optimizer = config.optimizer
-# weight_init = config.weight_init
-# hidden_layer_size=config.hidden_layer_size
-# activation_function=config.activation_function
-# hidden_layer=config.hidden_layer
-# alpha=config.alpha
-# run.name='hl_'+str(hidden_layer)+'_bs_'+str(batch_size)+'_ac_'+activation_function
+# after creating the list of indexes of each character of a word the function adds padding to it
+def variableFromSentence(lang, word, max_length):
+    indexes = indexesFromWord(lang, word)
+    indexes.append(EOS_token)
+    indexes.extend([PAD_token] * (max_length - len(indexes)))
+    result = torch.LongTensor(indexes)
+    if use_cuda:
+        return result.cuda()
+    else:
+        return result
 
-# call to train function
-weight,bias,train_error,train_accuracy,val_error,val_accuracy=train(x_train,y_train,batch_size,hidden_layer,hidden_layer_size,lr,weight_init,epochs,activation_function,output_function,optimizer,loss_function,alpha)
+# function creaters tensor for each input output pair in the dataset
+def variablesFromPairs(input_lang, output_lang, pairs, max_length):
+    res = []
+    i=0
+    while(i < len(pairs)):
+        input_variable = variableFromSentence(input_lang, pairs[i][0], max_length)
+        output_variable = variableFromSentence(output_lang, pairs[i][1], max_length)
+        res.append((input_variable, output_variable))
+        i+=1
+    return res
+
+teacher_forcing_ratio = 0.5
+
+# train function trains the model and returns the loss at each iteration of training
+def train(input_tensor, output_tensor, encoder, decoder,decoder_attn, encoder_optimizer, decoder_optimizer, criterion, configuration, max_length):
+    batch_size = configuration['batch_size']
+
+    encoder_hidden = encoder.initHidden(configuration['num_layers_encoder'])
+
+    if configuration["cell_type"] == "LSTM":
+        encoder_cell_state = encoder.initHidden(configuration['num_layers_encoder'])
+        encoder_hidden = (encoder_hidden, encoder_cell_state)
+
+    input_tensor = Variable(input_tensor.transpose(0, 1))
+    output_tensor = Variable(output_tensor.transpose(0, 1))
+
+    encoder_optimizer.zero_grad()
+    decoder_optimizer.zero_grad()
+    # if training with attention
+    if configuration['attention']== True:
+        encoder_outputs = Variable(torch.zeros(max_length +1, batch_size, encoder.hidden_size))
+        encoder_outputs = encoder_outputs.cuda() if use_cuda else encoder_outputs
+
+    loss ,i = 0, 0
+
+    input_length = input_tensor.size(0)
+    output_length = output_tensor.size(0)
+
+    while(i < (input_length)):
+        encoder_output, encoder_hidden = encoder(input_tensor[i], encoder_hidden)
+        if configuration['attention']== True:
+            encoder_outputs[i] += encoder_output[0,0]
+        i+=1
+
+    decoder_input = Variable(torch.LongTensor([SOS_token]*batch_size))
+    decoder_input = decoder_input.cuda() if use_cuda else decoder_input
+
+    decoder_hidden = encoder_hidden
+
+    use_teacher_forcing = True if random.random() < teacher_forcing_ratio else False
+
+    if use_teacher_forcing :
+        i=0
+        while(i < (output_length)) :
+            if configuration['attention']== False:
+                decoder_output, decoder_hidden= decoder(decoder_input, decoder_hidden)
+            else:
+                decoder_output, decoder_hidden,decoder_attention = decoder_attn(decoder_input, decoder_hidden,encoder_outputs.reshape(batch_size, max_length+1 ,encoder.hidden_size))
+
+            decoder_input = output_tensor[i]
+            loss += criterion(decoder_output, output_tensor[i])
+            i+=1
+
+    else :
+        j=0
+        while(j < (output_length)) :
+            if configuration['attention']== False:
+                decoder_output, decoder_hidden= decoder(decoder_input, decoder_hidden)
+            else:
+                decoder_output, decoder_hidden,decoder_attention = decoder_attn(decoder_input, decoder_hidden,encoder_outputs.reshape(batch_size, max_length+1 ,encoder.hidden_size))
+
+            topv, topi = decoder_output.data.topk(1)
+            decoder_input = torch.cat(tuple(topi))
+
+            decoder_input = decoder_input.cuda() if use_cuda else decoder_input
+
+            loss += criterion(decoder_output, output_tensor[j])
+            j+=1
+            
+    loss.backward()
+
+    encoder_optimizer.step()
+    decoder_optimizer.step()
+    # retruns loss at each wpoch
+    return loss.item() / output_length
+
+# evaluate function is used to find the accuracy and loss for each epoch or training on the validation dataset
+def evaluate(encoder, decoder,decoder_attn, loader, configuration, criterion ,max_length,output_lang):
+
+    batch_size = configuration['batch_size']
+    loss = 0
+    total = 0
+    correct = 0
+
+    for batch_x, batch_y in loader:
+        batch_loss = 0
+
+        encoder_hidden = encoder.initHidden(configuration['num_layers_encoder'])
+        
+        if configuration["cell_type"] == "LSTM":
+            encoder_cell_state = encoder.initHidden(configuration['num_layers_encoder'])
+            encoder_hidden = (encoder_hidden, encoder_cell_state)
+
+        input_variable = Variable(batch_x.transpose(0, 1))
+        output_variable = Variable(batch_y.transpose(0, 1))
+        
+        input_length = input_variable.size()[0]
+        target_length = output_variable.size()[0]
+        
+        if configuration['attention']== True:
+            encoder_outputs = Variable(torch.zeros(max_length +1, batch_size, encoder.hidden_size))
+            encoder_outputs = encoder_outputs.cuda() if use_cuda else encoder_outputs
+
+        output = torch.LongTensor(target_length, batch_size)
+        
+        i=0
+        while(i < (input_length)) :
+            encoder_output, encoder_hidden = encoder(input_variable[i], encoder_hidden)
+            if configuration['attention']== True:
+                encoder_outputs[i] = encoder_output[0,0]
+            i+=1
+
+        decoder_input = Variable(torch.LongTensor([SOS_token] * batch_size))
+        decoder_input = decoder_input.cuda() if use_cuda else decoder_input
+
+        decoder_hidden = encoder_hidden
+        j=0
+        while(j < (target_length)) :
+            if configuration['attention']== False:
+                decoder_output, decoder_hidden= decoder(decoder_input, decoder_hidden)
+            else:
+                decoder_output, decoder_hidden, decoder_attention = decoder_attn(decoder_input, decoder_hidden,encoder_outputs.reshape(batch_size, max_length+1,encoder.hidden_size))
+                
+
+            batch_loss += criterion(decoder_output, output_variable[j].squeeze())
+
+            topv, topi = decoder_output.data.topk(1)
+            decoder_input = torch.cat(tuple(topi))
+            output[j] = torch.cat(tuple(topi))
+            j+=1
+
+        output = output.transpose(0,1)
+        # finding accuracy
+        k=0
+        while(k < (output.size()[0])):
+            ignore = [SOS_token, EOS_token, PAD_token]
+            sent = [output_lang.index2char[letter.item()] for letter in output[k] if letter not in ignore]
+            y = [output_lang.index2char[letter.item()] for letter in batch_y[k] if letter not in ignore]
+
+            # print(sent,' ',y)
+            if sent == y:
+                correct += 1
+            total += 1
+            k+=1
+        accuracy = (correct/total)*100
+        loss += batch_loss.item()/target_length
+    # returning loss and accuracy
+    return accuracy, loss
+
+# this function takes as input a list of characters and creates string from the and return it
+def get_word(word1, word2, word3):
+    output=[]
+    s1=''
+    s2=''
+    s3=''
+    for x in word1:
+        s1+=x
+    for y in word2:
+        s2+=y
+    for z in word3:
+        s3+=z
+    output.append(s1)
+    output.append(s2)
+    output.append(s3)
+    return output
+
+# this function is used to find the test accuracy and test loss on the test dataset
+def evaluate_testset(encoder, decoder,decoder_attn, loader, configuration, criterion ,max_length,output_lang, input_lang):
+
+    batch_size = configuration['batch_size']
+    loss = 0
+    total = 0
+    correct = 0
+    output_words = []
+    for batch_x, batch_y in loader:
+        batch_loss = 0
+
+        encoder_hidden = encoder.initHidden(configuration['num_layers_encoder'])
+        
+        if configuration["cell_type"] == "LSTM":
+            encoder_cell_state = encoder.initHidden(configuration['num_layers_encoder'])
+            encoder_hidden = (encoder_hidden, encoder_cell_state)
+
+        input_variable = Variable(batch_x.transpose(0, 1))
+        output_variable = Variable(batch_y.transpose(0, 1))
+        
+        input_length = input_variable.size()[0]
+        target_length = output_variable.size()[0]
+        
+        if configuration['attention']== True:
+            encoder_outputs = Variable(torch.zeros(max_length +1, batch_size, encoder.hidden_size))
+            encoder_outputs = encoder_outputs.cuda() if use_cuda else encoder_outputs
+
+        output = torch.LongTensor(target_length, batch_size)
+        
+        i=0
+        while(i < (input_length)) :
+            encoder_output, encoder_hidden = encoder(input_variable[i], encoder_hidden)
+            if configuration['attention']== True:
+                encoder_outputs[i] = encoder_output[0,0]
+            i+=1
+
+        decoder_input = Variable(torch.LongTensor([SOS_token] * batch_size))
+        decoder_input = decoder_input.cuda() if use_cuda else decoder_input
+
+        decoder_hidden = encoder_hidden
+        j=0
+        while(j < (target_length)) :
+            if configuration['attention']== False:
+                decoder_output, decoder_hidden= decoder(decoder_input, decoder_hidden)
+            else:
+                decoder_output, decoder_hidden, decoder_attention = decoder_attn(decoder_input, decoder_hidden,encoder_outputs.reshape(batch_size, max_length+1,encoder.hidden_size))
+                
+
+            batch_loss += criterion(decoder_output, output_variable[j].squeeze())
+
+            topv, topi = decoder_output.data.topk(1)
+            decoder_input = torch.cat(tuple(topi))
+            output[j] = torch.cat(tuple(topi))
+            j+=1
+
+        output = output.transpose(0,1)
+
+        z,k = 0,0
+        while(k < (output.size()[0])):
+            ignore = [SOS_token, EOS_token, PAD_token]
+            x = [input_lang.index2char[letter.item()] for letter in batch_x[k] if letter not in ignore]
+            sent = [output_lang.index2char[letter.item()] for letter in output[k] if letter not in ignore]
+            y = [output_lang.index2char[letter.item()] for letter in batch_y[k] if letter not in ignore]
+            out = get_word(x, sent, y)
+            output_words.append(out)
+            if sent == y:
+                correct += 1
+            total += 1
+            k+=1
+#             if (z!=5):
+#                 print()
+#                 print("--------------------***------------------------")
+#                 print("Input Word : ",out[0])
+#                 print("Output Word : ",out[2])
+#                 print("predicted Word : ",out[1])
+#                 print("--------------------***------------------------")
+#                 z+=1
+        accuracy = (correct/total)*100
+        loss += batch_loss.item()/target_length
+    # this function also returns the list of all the output words predicted
+    return accuracy, loss, output_words
+
+# this function is used to find the test accuracy
+def test_accuracy(encoder, decoder,decoder_attn, test_loader, configuration, criterion,max_len_all, output_lang, input_lang):
+
+    test_acc, test_loss, test_output = evaluate_testset(encoder, decoder,decoder_attn, test_loader, configuration, criterion,max_len_all,output_lang, input_lang)
+    print("Test_accuracy : ",test_acc)
+    print("Test_loss : ",test_loss/len(test_loader))
+    print()
+    print("--------------------***------------------------")
+    fields = ['input','prediction','output']
+    df=pd.DataFrame(test_output)
+    
+    if(configuration['attention']==True):
+        df.to_csv('predictions_attention.csv', sep = ',', index= 'false', header = fields)
+    else:
+        df.to_csv('predictions_vanilla.csv', sep = ',', index= 'false', header = fields)
+        
+#     for k in range(len(test_output)):
+#         print(test_output[k])
+
+# this function has all the structure of the code and is used to train the model as well is evaluate it onthe validation as well as test set
+def trainIters(encoder, decoder,decoder_attn, train_loader, val_loader,test_loader, configuration, max_len_all, output_lang, input_lang):
+
+    encoder_optimizer = optim.NAdam(encoder.parameters(),lr=configuration['learning_rate'])
+    decoder_optimizer = optim.NAdam(decoder.parameters(),lr=configuration['learning_rate'])
+
+    criterion = nn.NLLLoss()
+    
+    ep = 10
+
+    i=0
+    while(i < (ep)) :
+        print("--------------------***------------------------")
+        print('ep : ',i)
+        train_loss = 0
+        print('training the model..')
+        batch_no = 1
+        for batchx, batchy in train_loader:
+            loss = None
+
+            loss = train(batchx, batchy, encoder, decoder, decoder_attn, encoder_optimizer, decoder_optimizer, criterion, configuration, max_len_all)
+            
+            train_loss += loss
+            batch_no+=1
+        print('Train loss :', train_loss/len(train_loader))
+        validation_accuracy , validation_loss = evaluate(encoder, decoder,decoder_attn, val_loader, configuration, criterion,max_len_all, output_lang)
+        print('validation loss :', validation_loss/len(val_loader))
+        print("val_accuracy : ",validation_accuracy)
+        i+=1
+        # uncomment the line below to run the sweep on wandb
+        #wandb.log({'validation_loss': validation_loss/len(val_loader), 'validation_accuracy': validation_accuracy, 'train_loss': train_loss/len(train_loader)})
+        print()
+    print("--------------------***------------------------")
+    test_accuracy(encoder, decoder, decoder_attn, test_loader, configuration, criterion, max_len_all, output_lang, input_lang)
+
+# this function is used to run the sweep on wandb
+def sweepfunction():
+    config = None
+    
+    with wandb.init(config = config, entity = 'cs22m005') as run:
+        config = wandb.config
+        run.name='hl_'+str(config.hidden_size)+'_bs_'+str(config.batch_size)+'_ct_'+config.cell_type
+        
+        configuration = {
+            "hidden_size" : config.hidden_size,
+            "input_lang" : 'eng',
+            "output_lang" : 'hin',
+            "cell_type"   : config.cell_type,
+            "num_layers_encoder" : config.num_layers_encoder ,
+            "num_layers_decoder" : config.num_layers_encoder,
+            "drop_out"    : config.drop_out, 
+            "embedding_size" : config.embedding_size,
+            "bi_directional" : False,
+            "batch_size" : config.batch_size,
+            "attention" : True ,
+            "learning_rate" : config.learning_rate
+    
+        }
+       
+ 
+        train_path = os.path.join(dir, lang_2, lang_2 + '_train.csv')
+        validation_path = os.path.join(dir, lang_2, lang_2 + '_valid.csv')
+        test_path = os.path.join(dir, lang_2, lang_2 + '_test.csv')
+        
+        input_lang, output_lang, pairs, max_input_length, max_target_length = prepareData(train_path, lang_1, lang_2)
+        val_input_lang, val_output_lang, val_pairs, max_input_length_val, max_target_length_val = prepareData(validation_path, lang_1, lang_2)
+        test_input_lang, test_output_lang, test_pairs, max_input_length_test, max_target_length_test = prepareData(test_path, lang_1, lang_2)
+        print(random.choice(pairs))
+
+        max_list = [max_input_length, max_target_length, max_input_length_val, max_target_length_val, max_input_length_test, max_target_length_test]
+
+        max_len_all = 0
+        for i in range(len(max_list)):
+            if(max_list[i] > max_len_all):
+                max_len_all = max_list[i]
+        max_len_all+=1
+
+        pairs = variablesFromPairs(test_input_lang, test_output_lang, pairs, max_len_all)
+        val_pairs = variablesFromPairs(test_input_lang, test_output_lang, val_pairs, max_len_all)
+        test_pairs = variablesFromPairs(test_input_lang, test_output_lang, test_pairs, max_len_all)
+
+        encoder1 = EncoderRNN(test_input_lang.n_chars, configuration)
+        if use_cuda:
+            encoder1=encoder1.cuda()
+
+        decoder1 = DecoderRNN(configuration, test_output_lang.n_chars)
+        if use_cuda:
+            decoder1=decoder1.cuda()
+
+        decoder_attn = AttnDecoder(configuration, test_output_lang.n_chars, max_len_all)
+        if use_cuda:
+            decoder_attn = decoder_attn.cuda()
 
 
-n_layers=layer_init(dim2,output_size,hidden_layer_size,hidden_layer,activation_function,output_function)
-for i in range(len(n_layers)):
-    print(n_layers[i])
-a,h=forward_propogation(x_test,weight,bias,n_layers,activation_function,output_function)
-y_pred=h[-1]
-y=[]
-for i in range(len(y_pred)):
-  y.append(np.argmax(y_pred[i]))
-l_test=loss(y_pred,y_test,loss_function,weight,alpha)
-counttest=accuracy(y_pred,y_test)
+        train_loader = torch.utils.data.DataLoader(pairs, batch_size = configuration['batch_size'], shuffle=True)
+        val_loader = torch.utils.data.DataLoader(val_pairs, batch_size = configuration['batch_size'], shuffle=True)
+        test_loader = torch.utils.data.DataLoader(test_pairs, batch_size = configuration['batch_size'], shuffle=True)
 
-print("Test_accuracy after training model is--", counttest/len(y_test))
-print("Test_loss after training model is--", l_test)
+        if configuration['attention'] == False :
+            trainIters(encoder1, decoder1, decoder_attn, train_loader, val_loader,test_loader, configuration, max_len_all, test_output_lang, test_input_lang)
+        else:
+            trainIters(encoder1, decoder1, decoder_attn, train_loader, val_loader,test_loader, configuration, max_len_all,test_output_lang, test_input_lang)
 
-# the following the the code for making the confusion matrix on test data as shown in the report
+# uncomment this function and the sweep configuration on top of the code to run sweep on wandb
+# wandb.agent(sweep_id, sweepfunction, count = 50)
 
-# cm=wandb.plot.confusion_matrix(
-#   y_true=Y_Test,
-#   preds=y,
-#   class_names= classes
-# )
-# print('Test Confusion Matrix\n')
-# wandb.log({"conf_mat": cm})
+# this function is used to run the best configuration obtained on the validation dataset 
+def final_run():
+    
+        # configuration = {
+        #     "hidden_size" : 512,
+        #     "input_lang" : 'eng',
+        #     "output_lang" : 'hin',
+        #     "cell_type"   : 'LSTM',
+        #     "num_layers_encoder" : 2 ,
+        #     "num_layers_decoder" : 2,
+        #     "drop_out"    : 0.2, 
+        #     "embedding_size" : 128,
+        #     "bi_directional" : True,
+        #     "batch_size" : 32,
+        #     "attention" : False ,
+        #     "learning_rate" : 0.001,
+    
+        # }
+
+        # data preprocessing by fetching the data from the dir and then converting it into pairs
+        train_path = os.path.join(dir, lang_2, lang_2 + '_train.csv')
+        validation_path = os.path.join(dir, lang_2, lang_2 + '_valid.csv')
+        test_path = os.path.join(dir, lang_2, lang_2 + '_test.csv')
+        
+        input_lang, output_lang, pairs, max_input_length, max_target_length = prepareData(train_path, lang_1, lang_2)
+        val_input_lang, val_output_lang, val_pairs, max_input_length_val, max_target_length_val = prepareData(validation_path, lang_1, lang_2)
+        test_input_lang, test_output_lang, test_pairs, max_input_length_test, max_target_length_test = prepareData(test_path, lang_1, lang_2)
+        print(random.choice(pairs))
 
 
+        max_list = [max_input_length, max_target_length, max_input_length_val, max_target_length_val, max_input_length_test, max_target_length_test]
+
+        max_len_all = 0
+        for i in range(len(max_list)):
+            if(max_list[i] > max_len_all):
+                max_len_all = max_list[i]
+        max_len_all+=1
+
+        # configuration taken from argparse
+        configuration = {
+
+                'hidden_size'         : hidden_size,
+                'input_lang'          : input_lang,
+                'output_lang'         : output_lang,
+                'cell_type'           : cell_type,
+                'num_layers_encoder'  : num_layers_encoder,
+                'num_layers_decoder'  : num_layers_encoder,
+                'drop_out'            : drop_out, 
+                'embedding_size'      : embedding_size,
+                'bi_directional'      : bidirectional,
+                'batch_size'          : batch_size,
+                'attention'           : attention,
+                'learning_rate'       : learning_rate,
+
+            }
+        # converting the pairs into tensor
+        pairs = variablesFromPairs(test_input_lang, test_output_lang, pairs, max_len_all)
+        val_pairs = variablesFromPairs(test_input_lang, test_output_lang, val_pairs, max_len_all)
+        test_pairs = variablesFromPairs(test_input_lang, test_output_lang, test_pairs, max_len_all)
+
+        encoder1 = EncoderRNN(test_input_lang.n_chars, configuration)
+        if use_cuda:
+            encoder1=encoder1.cuda()
+
+        decoder1 = DecoderRNN(configuration, test_output_lang.n_chars)
+        if use_cuda:
+            decoder1=decoder1.cuda()
+
+        decoder_attn = AttnDecoder(configuration, test_output_lang.n_chars, max_len_all)
+        if use_cuda:
+            decoder_attn = decoder_attn.cuda()
+
+        # creating batches using dataloader
+        train_loader = torch.utils.data.DataLoader(pairs, batch_size = configuration['batch_size'], shuffle=True)
+        val_loader = torch.utils.data.DataLoader(val_pairs, batch_size = configuration['batch_size'], shuffle=True)
+        test_loader = torch.utils.data.DataLoader(test_pairs, batch_size = configuration['batch_size'], shuffle=True)
+
+        if configuration['attention'] == False :
+            trainIters(encoder1, decoder1,decoder_attn, train_loader, val_loader,test_loader, configuration, max_len_all, test_output_lang, test_input_lang)
+        else:
+            trainIters(encoder1, decoder1,decoder_attn, train_loader, val_loader,test_loader, configuration, max_len_all, test_output_lang, test_input_lang)
+
+# final_run called to run the best configuration
+final_run()
